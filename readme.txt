@@ -4,7 +4,7 @@ Tags: custom global variables, variables, options, settings, shortcodes, shortco
 Author URI: https://www.newtarget.com
 Plugin URI: https://www.newtarget.com/solutions/wordpress-websites
 Requires at least: 3.0.1
-Tested up to: 6.1.1
+Tested up to: 7.1
 Stable tag: 1.1.2
 Requires PHP: 5.6
 License: GPLv2 or later
@@ -55,6 +55,16 @@ Or using the superglobal in PHP:
 1. Settings -> Custom Global Variables
 
 == Changelog ==
+= 1.1.3 =
+
+* Fixed variables appearing to be lost after AUTH_KEY changes. When there is no saved data for the current key and exactly one previous data file exists, it is copied for the current key. The previous file is kept. When several previous files exist, nothing is chosen automatically and a warning is shown to administrators.
+* Variables are now saved through a temporary file, and the previous data is kept as a .bak file. A failed save no longer empties the data file.
+* A data file that cannot be read is no longer treated as empty. Administrators see an error, the backup is used if available, and the broken file is kept with a ".corrupt-" suffix when saving.
+* "0" can now be saved as a value and displayed with the shortcode.
+* Values containing HTML entities such as `&lt;b&gt;` are no longer changed when saving the settings page again.
+* Fixed a PHP warning when `[cgv]` is used without a variable name.
+* Improved input handling on the settings page.
+
 = 1.1.2 =
 
 * Updated to be able to use markups in value fields.

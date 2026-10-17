@@ -1,0 +1,10 @@
+.git
+.github
+.gitignore
+.distignore
+bin
+tests
+vendor
+composer.json
+composer.lock
+phpunit.xml.dist
