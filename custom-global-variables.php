@@ -24,10 +24,10 @@ class Custom_Global_Variables {
     private $recovery_candidates = array();
 
     // Constructor
-    function __construct( $dir_path = null, $file_name = null ) {
+    function __construct() {
 
-        $this->dir_path  = ( null !== $dir_path ) ? $dir_path : WP_CONTENT_DIR . '/custom-global-variables';
-        $this->file_path = $this->dir_path . '/' . ( ( null !== $file_name ) ? $file_name : md5( AUTH_KEY ) . '.json' );
+        $this->dir_path  = WP_CONTENT_DIR . '/custom-global-variables';
+        $this->file_path = $this->dir_path . '/' . md5( AUTH_KEY ) . '.json';
 
         /* Retrieve locally the current definitions. */
 
@@ -164,7 +164,7 @@ class Custom_Global_Variables {
     }
 
     // Writes the variables through a temporary file so the current file is never left half written.
-    // Returns true, or 'encode' / 'write' on failure.
+    // Returns true, or 'encode' / 'preserve' / 'write' on failure.
     private function write_file( $vars ) {
 
         $json = json_encode( $vars );
@@ -199,10 +199,12 @@ class Custom_Global_Variables {
                 @chmod( $tmp_path, $perms & 0777 );
             }
 
-            // Keep the last-known-good data. A broken file never replaces the backup.
-            if ( 'valid' === $this->read_file( $this->file_path, $current ) ) {
+            // Keep the last-known-good data before replacing it. A broken file never replaces the backup.
+            if ( 'valid' === $this->read_file( $this->file_path, $current ) && ! @copy( $this->file_path, $this->file_path . '.bak' ) ) {
 
-                @copy( $this->file_path, $this->file_path . '.bak' );
+                @unlink( $tmp_path );
+
+                return 'preserve';
             }
         }
 

@@ -11,13 +11,15 @@ class Test_Custom_Global_Variables extends WP_UnitTestCase {
 
     private $legacy;
 
+    // Uses the real storage location: WP_CONTENT_DIR of the test install and md5( AUTH_KEY ).
     public function set_up() {
         parent::set_up();
 
-        $this->dir     = rtrim( sys_get_temp_dir(), '/' ) . '/cgv-test-' . uniqid();
-        $this->current = md5( 'new-auth-key' ) . '.json';
+        $this->dir     = WP_CONTENT_DIR . '/custom-global-variables';
+        $this->current = md5( AUTH_KEY ) . '.json';
         $this->legacy  = md5( 'old-auth-key' ) . '.json';
 
+        $this->remove_dir();
         mkdir( $this->dir );
 
         wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
@@ -26,17 +28,22 @@ class Test_Custom_Global_Variables extends WP_UnitTestCase {
     public function tear_down() {
         unset( $_POST['vars'], $_POST['cgv_nonce'], $_REQUEST['cgv_nonce'], $_GET['page'] );
 
-        if ( is_dir( $this->dir ) ) {
-            chmod( $this->dir, 0755 );
-            foreach ( scandir( $this->dir ) as $file ) {
-                if ( '.' !== $file && '..' !== $file ) {
-                    unlink( $this->dir . '/' . $file );
-                }
-            }
-            rmdir( $this->dir );
-        }
+        $this->remove_dir();
 
         parent::tear_down();
+    }
+
+    private function remove_dir() {
+        if ( ! is_dir( $this->dir ) ) {
+            return;
+        }
+
+        chmod( $this->dir, 0755 );
+        foreach ( array_diff( scandir( $this->dir ), array( '.', '..' ) ) as $file ) {
+            $path = $this->dir . '/' . $file;
+            is_dir( $path ) ? rmdir( $path ) : unlink( $path );
+        }
+        rmdir( $this->dir );
     }
 
     private function path( $file ) {
@@ -48,7 +55,7 @@ class Test_Custom_Global_Variables extends WP_UnitTestCase {
     }
 
     private function plugin() {
-        return new Custom_Global_Variables( $this->dir, $this->current );
+        return new Custom_Global_Variables();
     }
 
     private function files() {
@@ -171,7 +178,7 @@ class Test_Custom_Global_Variables extends WP_UnitTestCase {
         $this->assertSame( array( 'phone' => '555-0100', 'zero' => '0' ), $GLOBALS['cgv'] );
         $this->assertSame( array( 'phone' => '555-0100', 'zero' => '0' ), $this->stored() );
         $this->assertSame( '{"phone":"555-0100","zero":"0"}', file_get_contents( $this->path( $this->legacy ) ) );
-        $this->assertSame( array( $this->legacy, $this->current ), $this->files() );
+        $this->assertEqualsCanonicalizing( array( $this->legacy, $this->current ), $this->files() );
     }
 
     public function test_recovers_single_legacy_file_when_current_is_zero_bytes() {
@@ -309,7 +316,20 @@ class Test_Custom_Global_Variables extends WP_UnitTestCase {
 
         $this->assertSame( array( 'foo' => 'new' ), $this->stored() );
         $this->assertSame( '{"foo":"old"}', file_get_contents( $this->path( $this->current . '.bak' ) ) );
-        $this->assertSame( array( $this->current, $this->current . '.bak' ), $this->files() );
+        $this->assertEqualsCanonicalizing( array( $this->current, $this->current . '.bak' ), $this->files() );
+    }
+
+    public function test_backup_failure_aborts_save_and_leaves_file_unchanged() {
+        $this->put( $this->current, '{"foo":"old"}' );
+        // A directory in place of the backup file makes copy() fail.
+        mkdir( $this->path( $this->current . '.bak' ) );
+
+        $html = $this->save( $this->plugin(), array( array( 'name' => 'foo', 'val' => 'new' ) ) );
+
+        $this->assertStringContainsString( 'a copy of the current data file could not be kept', $html );
+        $this->assertStringNotContainsString( 'successfully been saved', $html );
+        $this->assertSame( '{"foo":"old"}', file_get_contents( $this->path( $this->current ) ) );
+        $this->assertEqualsCanonicalizing( array( $this->current, $this->current . '.bak' ), $this->files() );
     }
 
     public function test_save_keeps_file_permissions() {
@@ -337,7 +357,7 @@ class Test_Custom_Global_Variables extends WP_UnitTestCase {
 
         $this->assertStringContainsString( 'could not be converted to JSON', $html );
         $this->assertSame( '{"foo":"old"}', file_get_contents( $this->path( $this->current ) ) );
-        $this->assertSame( array( $this->current ), $this->files() );
+        $this->assertEqualsCanonicalizing( array( $this->current ), $this->files() );
     }
 
     public function test_write_failure_leaves_file_unchanged() {
@@ -355,7 +375,7 @@ class Test_Custom_Global_Variables extends WP_UnitTestCase {
 
         $this->assertStringContainsString( 'could not be saved', $html );
         $this->assertSame( '{"foo":"old"}', file_get_contents( $this->path( $this->current ) ) );
-        $this->assertSame( array( $this->current ), $this->files() );
+        $this->assertEqualsCanonicalizing( array( $this->current ), $this->files() );
     }
 
     public function test_save_requires_a_valid_nonce() {
