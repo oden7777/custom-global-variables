@@ -3,13 +3,16 @@
  * Plugin Name: Custom Global Variables
  * Plugin URI: https://www.newtarget.com/solutions/wordpress-websites
  * Description: Easily create custom variables that can be accessed globally in Wordpress and PHP. Retrieval of information is extremely fast, with no database calls.
- * Version: 1.1.3
+ * Version: 1.1.4
  * Author: new target, inc
  * Author URI: https://www.newtarget.com
  * License: GPL2
  */
 
 class Custom_Global_Variables {
+
+    // External survey opened only when the user clicks "Share feedback" on the settings page.
+    const SURVEY_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSc2wB87NwbI9WjZOEvAGZdsr1uFfbKTJE3-ulLC41yJAHvvQA/viewform';
 
     private $file_path = '';
 
@@ -464,6 +467,38 @@ class Custom_Global_Variables {
                 </form>
 
             </div>
+
+            <?php $this->print_feedback_panel( self::SURVEY_URL ); ?>
+
+        </div>
+
+        <?php
+    }
+
+    // Shows a plain link to the survey. Nothing is sent unless the user clicks it. Hidden until a real URL is set.
+    private function print_feedback_panel( $survey_url ) {
+
+        if ( 0 !== strpos( $survey_url, 'https://' ) ) {
+
+            return;
+        }
+        ?>
+
+        <div class="card">
+
+            <h3>Agency features are being considered</h3>
+
+            <p>We're exploring optional features for people who manage multiple WordPress sites or work with clients.</p>
+
+            <ul class="ul-disc">
+                <li>Multisite variables and site-specific overrides</li>
+                <li>Import / Export</li>
+                <li>Role-based editing permissions</li>
+            </ul>
+
+            <p>If these would be useful to you, we'd appreciate a short survey.</p>
+
+            <p><a class="button" href="<?php echo esc_url( $survey_url ) ?>" target="_blank" rel="noopener noreferrer">Share feedback<span class="screen-reader-text"> (opens in a new tab)</span></a></p>
 
         </div>
 
