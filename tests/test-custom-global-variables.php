@@ -512,4 +512,175 @@ class Test_Custom_Global_Variables extends WP_UnitTestCase {
         $this->assertSame( 'bar', $GLOBALS['cgv']['foo'] );
         $this->assertSame( '0', $GLOBALS['cgv']['zero'] );
     }
+
+    /*
+     * Feedback panel
+     */
+
+    private function feedback_panel( $survey_url ) {
+        $method = new ReflectionMethod( 'Custom_Global_Variables', 'print_feedback_panel' );
+        if ( PHP_VERSION_ID < 80100 ) {
+            $method->setAccessible( true );
+        }
+
+        ob_start();
+        try {
+            $method->invoke( $this->plugin(), $survey_url );
+        } finally {
+            $html = ob_get_clean();
+        }
+
+        return $html;
+    }
+
+    // Returns the "Share feedback" links in the given HTML.
+    private function feedback_links( $html ) {
+        $doc = new DOMDocument();
+        libxml_use_internal_errors( true );
+        $doc->loadHTML( '<?xml encoding="utf-8"?>' . $html );
+        libxml_clear_errors();
+
+        $links = array();
+        $xpath = new DOMXPath( $doc );
+
+        foreach ( $xpath->query( '//a[starts-with(normalize-space(.),"Share feedback")]' ) as $link ) {
+            $links[] = $link;
+        }
+
+        return $links;
+    }
+
+    public function test_feedback_panel_is_shown_on_the_settings_page() {
+        $html  = $this->render( $this->plugin() );
+        $links = $this->feedback_links( $html );
+
+        $this->assertStringContainsString( 'Agency features are being considered', $html );
+        $this->assertCount( 1, $links );
+        $this->assertSame( Custom_Global_Variables::SURVEY_URL, $links[0]->getAttribute( 'href' ) );
+        $this->assertSame( '_blank', $links[0]->getAttribute( 'target' ) );
+        $this->assertEqualsCanonicalizing( array( 'noopener', 'noreferrer' ), explode( ' ', $links[0]->getAttribute( 'rel' ) ) );
+    }
+
+    public function test_survey_url_is_https_without_tracking_parameters() {
+        $this->assertStringStartsWith( 'https://', Custom_Global_Variables::SURVEY_URL );
+        $this->assertFalse( strpos( Custom_Global_Variables::SURVEY_URL, '?' ) );
+    }
+
+    public function test_feedback_panel_is_not_shown_on_other_admin_screens() {
+        // A broken file makes admin_notices print something, so the hook is known to run.
+        $this->put( $this->current, '{broken' );
+        $this->plugin();
+
+        foreach ( array( 'dashboard', 'plugins', 'options-general' ) as $screen ) {
+            set_current_screen( $screen );
+
+            ob_start();
+            do_action( 'admin_notices' );
+            do_action( 'all_admin_notices' );
+            do_action( 'wp_dashboard_setup' );
+            $html = ob_get_clean();
+
+            $this->assertStringContainsString( 'could not read its data file', $html );
+            $this->assertStringNotContainsString( 'Agency features', $html );
+            $this->assertStringNotContainsString( 'Share feedback', $html );
+        }
+    }
+
+    public function test_feedback_panel_is_hidden_until_a_real_url_is_set() {
+        $this->assertSame( '', $this->feedback_panel( 'SURVEY_URL_HERE' ) );
+        $this->assertSame( '', $this->feedback_panel( '' ) );
+        $this->assertSame( '', $this->feedback_panel( 'http://example.com/' ) );
+        $this->assertSame( '', $this->feedback_panel( 'javascript:alert(1)' ) );
+    }
+
+    public function test_survey_url_is_escaped() {
+        $html  = $this->feedback_panel( 'https://example.com/?a=1&b="><script>alert(1)</script>' );
+        $links = $this->feedback_links( $html );
+
+        $this->assertStringNotContainsString( '<script>', $html );
+        $this->assertStringNotContainsString( '"><', $html );
+        $this->assertCount( 1, $links );
+        $this->assertStringStartsWith( 'https://example.com/?a=1&b=', $links[0]->getAttribute( 'href' ) );
+    }
+
+    public function test_feedback_panel_does_not_affect_saving() {
+        $plugin = $this->plugin();
+        $html   = $this->save( $plugin, array( array( 'name' => 'foo', 'val' => 'bar' ) ) );
+
+        $this->assertStringContainsString( 'successfully been saved', $html );
+        $this->assertSame( array( 'foo' => 'bar' ), $this->stored() );
+        $this->assertCount( 1, $this->feedback_links( $html ) );
+
+        // The panel adds no form fields, so a re-save keeps the same data.
+        $this->assertSame( array( array( 'name' => 'foo', 'val' => 'bar' ), array( 'name' => '', 'val' => '' ) ), $this->form_rows( $html ) );
+    }
+
+    /*
+     * No external requests
+     */
+
+    public function test_loading_the_plugin_and_opening_the_settings_page_make_no_http_requests() {
+        $requests = array();
+        add_filter(
+            'pre_http_request',
+            function ( $pre, $args, $url ) use ( &$requests ) {
+                $requests[] = $url;
+                return $pre;
+            },
+            10,
+            3
+        );
+
+        $plugin = $this->plugin();
+        do_action( 'admin_menu' );
+        do_action( 'admin_notices' );
+        $this->render( $plugin );
+        $this->save( $plugin, array( array( 'name' => 'foo', 'val' => 'bar' ) ) );
+        do_shortcode( '[cgv foo]' );
+
+        $this->assertSame( array(), $requests );
+    }
+
+    // The WordPress HTTP API filter cannot see direct PHP or browser requests, so the sources are checked too.
+    public function test_sources_contain_no_external_request_code() {
+        $root    = dirname( __DIR__ );
+        $sources = array(
+            'custom-global-variables.php' => file_get_contents( $root . '/custom-global-variables.php' ),
+            'script.js'                   => file_get_contents( $root . '/script.js' ),
+        );
+
+        $patterns = array(
+            '/\bwp_(safe_)?remote_/',
+            '/\bdownload_url\s*\(/',
+            '/\bcurl_/',
+            '/\bfsockopen\s*\(/',
+            '/\bstream_socket_client\s*\(/',
+            '/\bget_headers\s*\(/',
+            '/\bfetch\s*\(/',
+            '/XMLHttpRequest/',
+            '/sendBeacon/',
+            '/\.(ajax|get|post|getJSON|load)\s*\(/',
+            '/new\s+Image\s*\(/',
+            '/<img[^>]+src=["\']https?:/i',
+            '/<script[^>]+src=/i',
+        );
+
+        foreach ( $sources as $file => $source ) {
+            foreach ( $patterns as $pattern ) {
+                $this->assertDoesNotMatchRegularExpression( $pattern, $source, $file . ' matches ' . $pattern );
+            }
+        }
+
+        // The only external URLs are the plugin header links and the survey link.
+        preg_match_all( '#https?://[^\s\'"<>]+#', $sources['custom-global-variables.php'], $m );
+        $this->assertEqualsCanonicalizing(
+            array(
+                'https://www.newtarget.com/solutions/wordpress-websites',
+                'https://www.newtarget.com',
+                Custom_Global_Variables::SURVEY_URL,
+            ),
+            array_values( array_unique( $m[0] ) )
+        );
+        $this->assertDoesNotMatchRegularExpression( '#https?://#', $sources['script.js'] );
+    }
 }

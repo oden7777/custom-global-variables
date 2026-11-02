@@ -55,6 +55,11 @@ Or using the superglobal in PHP:
 1. Settings -> Custom Global Variables
 
 == Changelog ==
+= 1.1.4 =
+
+* Added an optional link for users to share feedback about possible future agency features.
+* No existing plugin functionality has been changed.
+
 = 1.1.3 =
 
 * Fixed variables appearing to be lost after AUTH_KEY changes. When there is no saved data for the current key and exactly one previous data file exists, it is copied for the current key. The previous file is kept. When several previous files exist, nothing is chosen automatically and a warning is shown to administrators.
